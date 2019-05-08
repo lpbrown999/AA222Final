@@ -1,0 +1,6 @@
+## Nelder mead can only be fed vectors.
+#These vectors will typically be layups
+
+#Need to make structure a type that has many properties.
+#and then our objective values can be derived from these properties
+#Add capability of sandwiches

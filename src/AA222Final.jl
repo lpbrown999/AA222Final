@@ -1,15 +1,18 @@
 module AA222Final
 
-export laminate_analyzer, laminate_compliance, load_deformation_solver, safety_factor, ply_local_stress_strain
+#Stuff from composite analysis. functions then things
+export laminate_analyzer, safety_factor
 export MaterialProperties, MaterialStrengths, LaminateProperties
 
-export nelder_mead, log_barrier
+#stuff from optimization methods
+export nelder_mead, generate_simplex, combined_penalty
 
-export sheet_SF, ply_orientation_penalty
-
+#stuff from structure analysis
+export CompositePlate, SandwichPlate,  ThreePointBending
+export composite_plate, sandwich_plate, three_point_bending
 
 include("CompositeAnalysis.jl")
-include("DirectMethods.jl")
-include("StructureOptimization.jl")
+include("OptimizationMethods.jl")
+include("StructureAnalysis.jl")
 
 end

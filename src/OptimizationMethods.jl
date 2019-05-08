@@ -1,6 +1,6 @@
-
-#7.5 in book
-function nelder_mead(f, S; n=100, α=1.0, β=2.0, γ=0.5)
+import Statistics
+#First order optimization method
+function nelder_mead(f, S, n; α=1.0, β=2.0, γ=0.5)
 	#f -> function 
 	#S -> Initial simplex 
 	#n -> allowed evaluations
@@ -42,24 +42,34 @@ function nelder_mead(f, S; n=100, α=1.0, β=2.0, γ=0.5)
 end 
 
 
-#Helpers
+## Penalty methods
+# c a value supposed to be <= 0.
 
-#Log indicator 
-function log_indicator(x)
-	if x <= 0
-		return -2^60
-	else
-		return log(x)
+function quad_penalty(c)
+    return sum( max.(0,c).^2 )
+end
+
+function count_penalty(c)
+    return sum( c .>= 0 )
+end
+
+function combined_penalty(c,p1,p2)
+    return p1*quad_penalty(c) + p2*count_penalty(c)
+end
+
+## Generate a simplex using uniform distribution from a to b
+function generate_simplex(ndim::Int64,a::Float64,b::Float64)
+    S = [ a.+(b-a)*rand(ndim) for i in 1:ndim+1 ]
+    return S
+end
+#If each dim needs dif range
+function generate_simplex(ndim::Int64,a::Vector,b::Vector)
+	S = []
+	for i in 1:ndim+1
+		push!(S,zeros(ndim))
+		for j in 1:ndim
+			S[i][j] = a[j].+(b[j]-a[j])*rand()
+		end
 	end
-end
-
-# Log barrier for inequality constraints
-# fi(x) <= 0. Pass in fi already evaluated
-function log_barrier(fi)
-	return -(sum(log_indicator.(fi)))
-end
-
-#Quadratic penalty for not being hi = 0
-function quad_penalty_equality(hi)
-	return sum(hi.^2)
+	return S
 end
