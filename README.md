@@ -7,5 +7,3 @@ To add to julia, clone the repo, then open your julia start up file  ~/.julia/co
 
 
 push!(LOAD_PATH, "/Users/me/AA222Final")
-
-test edit
