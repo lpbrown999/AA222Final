@@ -5,10 +5,8 @@ function sandwich_bending_case(inpvec)
 	##This input
 	#Fist n-1 entries are the facesheet ply orientations.
 	#last entry is the thickness of the core!!!
-
 	face_sheet_layup = inpvec[1:end-1]
 	tcore  = max(1e-10,inpvec[end])
-
 
 	#Composite 
 	composite_properties = MaterialProperties(11.2e6,0.94e6,.06,.94e6,.01,.056)
@@ -69,14 +67,13 @@ end
 #Constraint function
 function c(inpvec)
 	cret = []
-	push!(cret, defl_constraint(inpvec,2.))
+	push!(cret, defl_constraint(inpvec,.5))
 	return cret 
 end
 
-ndim = 4
+ndim = 5
 x0 = [0.,0.,0.,0.]
-a = [-180.,-180.,-180.,0.]
-b = [180., 180., 180., 5.]
-
-best_layup = optimize(sandwich_weight, c, x0, n=1000, a=a, b=b)
+a = [-180*ones(ndim-1);0.]		
+b = [180*ones(ndim-1); 5.]
+best_layup = optimize(sandwich_weight, c, x0, n=10000, a=a, b=b, p1=1000, p2=1000)
 # Now want to optimize ndim to provide lowest weight 
