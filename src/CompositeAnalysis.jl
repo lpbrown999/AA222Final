@@ -10,6 +10,13 @@ struct MaterialProperties <: CompositeInformation
 	ρ::Float64			#Density
 end
 
+struct BatteryProperties <: CompositeInformation
+	E::Float64	#Modulus 
+	G::Float64	#Shear modulus
+	ρ::Float64	#density
+	ρe::Float64	#energy density
+end
+
 struct MaterialStrengths <: CompositeInformation
 	F1t::Float64
 	F2t::Float64
