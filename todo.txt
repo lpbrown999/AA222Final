@@ -1,9 +1,5 @@
 ## Nelder mead can only be fed vectors.
 #These vectors will typically be layups
 
-#Need to make structure a type that has many properties.
-#MESC box beam -> contains total composite weights, etc
-#			   -> and battery properties
-
-#Constraints based on weight, etc
-
+IDEA: Add ability of the MESC beam to have FOAM with low properties instead of just battery. to save weight?
+This will give better tradoff curve

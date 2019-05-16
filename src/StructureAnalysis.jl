@@ -53,8 +53,13 @@ struct MESCBoxBeam <: CompositeStructure
 	weight::Float64 
 	capacity::Float64
 end
-function MESC_box_beam(top_flange::CompositePlate,webs::CompositePlate,bot_flange::CompositePlate,battery_material::BatteryProperties,h::Float64,w::Float64,l::Float64)
-	battery_w = w - 2*webs.h
+function MESC_box_beam(top_flange::CompositePlate,webs::CompositePlate,bot_flange::CompositePlate,battery_material::BatteryProperties,h::Float64,w::Float64,l::Float64,wb::Float64)
+	# battery_w = w - 2*webs.h
+
+	#Assume battery is as tall as it can be but scales width wise. 
+	#This makes the most sense structurally since we do not have to define a location.
+
+	battery_w = wb
 	battery_h = h - (top_flange.h + bot_flange.h)
 	core = battery_core(battery_material,battery_h,battery_w,l)
 	weight = top_flange.weight + 2*webs.weight + bot_flange.weight + core.weight
