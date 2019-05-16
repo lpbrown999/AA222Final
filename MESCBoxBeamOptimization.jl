@@ -15,10 +15,13 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	## input_vector is a vector of beam geometry and layups, which is what we are optimizing over
 		#Element 1: beam total height (enforce feasibility)
 		#Element 2: beam total width  (enforce feasibility)
-		#Elements 3 to end: layups 
+		#Element 3: battery width (enforce feasibility)
+		#Elements 4 to end: layups 
 	h = max(input_vector[1],.1)
 	w = max(input_vector[2],.1)
-	layups = input_vector[3:end]
+	wb = max(input_vector[3],.1)
+
+	layups = input_vector[4:end]
 	top_layup = layups[1:n_top_flange]
 	web_layup = layups[1+n_top_flange:n_top_flange+n_webs]
 	bot_layup = layups[1+n_top_flange+n_webs:n_top_flange+n_webs+n_bot_flange]
@@ -49,7 +52,7 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	##################### Start main function #######################
 	######Fixed Stuff#########
 	l = 30.					#Fixed length of 30 inches, can change
-	P = 100.				    #Fixed tip load
+	P = 0.1				    #Fixed tip load
 
 	## Battery properties, assume isotropic, homogenized behavior. Does not include out of plane effects
 	E_bat = .78e6		#In plane
@@ -88,24 +91,34 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	web_laminate = laminate_analyzer(web_layup,composite_properties,composite_strengths)
 	web_plate = composite_plate(web_laminate, h-top_plate.h-bot_plate.h, l)
 
-	#Now we have the MESC box beam and can evaluate its performance in the loading case
-	box_beam = MESC_box_beam(top_plate,web_plate,bot_plate,battery_properties,h,w,l)
+	#generate MESC box beam and can evaluate its performance in the loading case
+	box_beam = MESC_box_beam(top_plate,web_plate,bot_plate,battery_properties,h,w,l,wb)
 	bending_case = cantilever_bending(box_beam,P)
 
 	##################### Value return #####################
 	# all constrants of form <= 0
 	# constraint_vec1 -> non layup constraints
 	# constraint_vec2 -> layup orientation constraints
-	
 	SF = bending_case.SF
 	δ = bending_case.δ
 	capacity = box_beam.capacity
 	weight   = box_beam.weight
 	
-	cvec1 = [h-hmax, w-wmax, hmin-h, wmin-w, SFmin-bending_case.SF, δ-δmax, Capacitymin-capacity]	
+	cvec1 = [h-hmax, 						#h <= hmax 
+			 w-wmax, 						#w <= wmax 
+			 wb-w+2*box_beam.webs.h,		#wbattery <= w - 2*webthickness	#Battery must fit inside
+
+			 hmin-h, 						#h >= hmin
+			 wmin-w,						#w >= wmin  
+
+			 SFmin-bending_case.SF, 		#SF >= SFmin 
+			 δ-δmax, 						#δ <= δmax
+			 Capacitymin-capacity]			#Capacity >= Capacitymmin
+
+
 	cvec2 = []
-	for layer in layups
-		push!(cvec2,minimum(abs.(layer.-allowable_ply_anlges)))
+	for layer in layups	
+		push!(cvec2,minimum(abs.(layer.-allowable_ply_anlges)))		# c evaluates to the minimum distance from an allowed angle
 	end
 
 	#Objective + penalties on the constraints
@@ -165,55 +178,16 @@ constraint_vec = [hmax,wmax,hmin,wmin,SFmin,δmax,Capacitymin]
 allowable_ply_angles = [-45.,0.,45.,90.]
 
 num_ply_vec =[4,3,2]       #Number of plys in top flange, webs, bot flange
-a = [zeros(2); -180. *ones(sum(num_ply_vec))]	#LB on h,w, ply angles for simplex generation
-b = [5*ones(2); 180. *ones(sum(num_ply_vec))]	#UB
+a = [zeros(3); -180. *ones(sum(num_ply_vec))]	#LB on h,w,wb, ply angles for simplex generation
+b = [5*ones(3); 180. *ones(sum(num_ply_vec))]	#UB
 ndim = length(a)
 
 f_optimize(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_anlges=allowable_ply_angles, mode="optimize")
 f_evaluate(input_vector)       = mesc_box_beam_objective(input_vector, p1=0., p2=0., num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_anlges=allowable_ply_angles, mode="evaluate")
 
-design = optimize(f_optimize, ndim, neval=100000, a=a, b=b, p1=1.0, p1g=1.3,  p2=10., p2g=1.3, num_growths=50)
+design = optimize(f_optimize, ndim, neval=100000, a=a, b=b, p1=1.0, p1g=1.3,  p2=10., p2g=1.3, num_growths=100)
 design_eval = f_evaluate(design)
 
 
-## Todo
 
 
-# #Attempt to construct pareto frontier by varying constraint on the capacity
-# Capacitymins = 20
-# num_runs_per_capacity = 1
-
-# designs = []
-# design_evals = []
-
-# for Capacitymin in Capacitymins
-# 	println(Capacitymin)
-# 	constraint_vec = [hmax,wmax,hmin,wmin,SFmin,δmax,Capacitymin]
-
-# 	#Function that we can use to optimize the design
-# 	#And one to evaluate the design
-
-# 	for i in 1:num_runs_per_capacity
-# 		design = optimize(f_optimize, ndim, neval=10000, a=a, b=b, p1=1.0, p1g=1.1,  p2=1.0, p2g=1.1, num_growths=50)
-# 		design_eval = f_evaluate(design)
-
-# 	push!(designs,      design)
-# 	push!(design_evals, design_eval)
-# 	end
-# end
-
-	# return designs, design_evals
-# end
-
-# design, design_evals = main()
-# weights = []
-# capacities = [] 
-
-# for i in 1:length(design_evals)
-# 	push!(weights,    design_evals[i][3])
-# 	push!(capacities, design_evals[i][4])
-# end
-
-# ##Idea trim the dominated points
-# fig = figure()
-# plot(weights,-capacities)
