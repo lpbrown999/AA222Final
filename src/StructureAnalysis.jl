@@ -1,32 +1,69 @@
-
 abstract type CompositeStructure end
+abstract type CoreStructure end
+
 
 struct CompositePlate <: CompositeStructure
 	laminate::LaminateProperties		
+	h::Float64						#height
 	w::Float64						#Width
 	l::Float64						#length
-	h::Float64						#height
 	weight::Float64					#plate weight
 end
 function composite_plate(laminate::LaminateProperties, w::Float64, l::Float64)
-	return CompositePlate(laminate,w,l,laminate.t,w*l*laminate.t*laminate.ρ)
+	return CompositePlate(laminate,laminate.t,w,l,w*l*laminate.t*laminate.ρ)
+end
+
+struct BatteryCore <: CoreStructure
+	E::Float64	#Modulus 
+	G::Float64	#Shear modulus 
+
+	h::Float64	#height 
+	w::Float64	#width 
+	l::Float64	#length 
+
+	ρ::Float64	#density
+	ρe::Float64 #energy density 
+	weight::Float64 #weight 
+	capacity::Float64 #energy capacity
+end
+function battery_core(battery::BatteryProperties,h::Float64,w::Float64,l::Float64)
+	E = battery.E
+	G = battery.G
+	ρ = battery.ρ
+	ρe = battery.ρe
+	V = w*h*l
+	weight = ρ*V 
+	capacity = ρe*V
+	return BatteryCore(E,G,h,w,l,ρ,ρe,weight,capacity)
+end	
+
+struct MESCBoxBeam <: CompositeStructure
+	#Geometry of the MESC box beam
+	h::Float64
+	w::Float64
+	l::Float64
+
+	#Materials of the box beam
+	top_flange::CompositePlate
+	webs::CompositePlate
+	bot_flange::CompositePlate
+	core::BatteryCore
+
+	#Properties of the box beam
+	weight::Float64 
+	capacity::Float64
+end
+function MESC_box_beam(top_flange::CompositePlate,webs::CompositePlate,bot_flange::CompositePlate,battery_material::BatteryProperties,h::Float64,w::Float64,l::Float64)
+	battery_w = w - 2*webs.h
+	battery_h = h - (top_flange.h + bot_flange.h)
+	core = battery_core(battery_material,battery_h,battery_w,l)
+	weight = top_flange.weight + 2*webs.weight + bot_flange.weight + core.weight
+	capacity = core.capacity
+	return MESCBoxBeam(h,w,l,top_flange,webs,bot_flange,core,weight,capacity)
 end
 
 
-struct SandwichPlate <: CompositeStructure
-	top_sheet::CompositePlate
-	core::CompositePlate
-	bot_sheet::CompositePlate
-end
-function sandwich_plate(top_laminate::LaminateProperties, core_laminate::LaminateProperties, bot_laminate::LaminateProperties, w::Float64, l::Float64)
-	top_sheet = composite_plate(top_laminate,w,l)
-	core = composite_plate(core_laminate,w,l)
-	bot_sheet = composite_plate(bot_laminate,w,l)
-	return SandwichPlate(top_sheet,core,bot_sheet)
-end
-
-
-##Different load cases. Each load case can be analyzed for a different structure type!
+##Different load cases. Each load case can be analyzed for a different structure type
 abstract type LoadCase end
 
 struct ThreePointBending <: LoadCase
@@ -36,78 +73,85 @@ struct ThreePointBending <: LoadCase
 	SF::Float64
 end
 
-#Three point bending for a plate
-function three_point_bending(composite_structure::CompositePlate,P::Float64)
-	E = composite_structure.laminate.Ex
-	L = composite_structure.l
-	h = composite_structure.h
-	w = composite_structure.w
-	Iyy = (1/12)*(w*h^3)
-	δ = (P*L^3)/(48*E*Iyy)
-
-	N = [0.,0.,0.]
-	M = [(P*L/4)/w, 0., 0.]
-	SF = safety_factor(composite_structure.laminate, N, M)
-	return ThreePointBending(composite_structure,P,δ,SF)
+struct CantileverBending <: LoadCase
+	composite_structure::CompositeStructure
+	P::Float64 
+	δ::Float64
+	SF::Float64
 end
+function cantilever_bending(box_beam::MESCBoxBeam,P::Float64)
+	L = box_beam.l
+	#MESC Box beam in cantiliver loading. P defined positive upwards
+	#In YZ frame (webs rotated 90)
+	E_top = box_beam.top_flange.laminate.Ex
+	E_web = box_beam.webs.laminate.Ex
+	E_bot = box_beam.bot_flange.laminate.Ex
+	E_core = box_beam.core.E
 
-#Three point bending for a sandwich plate
-function three_point_bending(composite_structure::SandwichPlate,P::Float64)
-	#Grab all of the component properties
-	E_top  = composite_structure.top_sheet.laminate.Ex
-	E_core = composite_structure.core.laminate.Ex
-	E_bot = composite_structure.bot_sheet.laminate.Ex
+	h_top = box_beam.top_flange.h
+	h_web = box_beam.webs.w
+	h_bot = box_beam.bot_flange.h
+	h_core = box_beam.core.h
 
-	w_top = composite_structure.top_sheet.w
-	w_core = composite_structure.core.w
-	w_bot = composite_structure.bot_sheet.w
-
-	h_top = composite_structure.top_sheet.h
-	h_core = composite_structure.core.h
-	h_bot = composite_structure.bot_sheet.h
+	w_top = box_beam.top_flange.w
+	w_web = box_beam.webs.h 
+	w_bot = box_beam.bot_flange.w
+	w_core = box_beam.core.w
 
 	A_top = h_top*w_top
+	A_web = h_web*w_web
+	A_bot = h_bot*w_bot 
 	A_core = h_core*w_core 
-	A_bot = h_bot*w_bot
 
 	Z_bot = h_bot/2
-	Z_core = h_bot + h_core/2
-	Z_top = h_bot + h_core + h_top/2
+	Z_core = h_bot+h_core/2
+	Z_web = h_bot+h_web/2 
+	Z_top = h_bot+h_web+h_top/2
 
-	L = composite_structure.top_sheet.l 
+	EA = E_top*A_top + E_web*A_web + E_bot*A_bot + E_core*A_core
+	Zbar = (E_top*A_top*Z_top + E_web*A_web*Z_web + E_bot*A_bot*Z_bot + E_core*A_core*Z_core)/EA
 
-	#Compute modulus weighted area, centroid 
-	EA = E_top*A_top + E_core*A_core + E_bot*A_bot
-	Zbar = (Z_top*E_top*A_top + Z_core*E_core*A_core + Z_bot*E_bot*A_bot)/EA
-
-	#Compute bending stifness
-	Iyy_top  = (1/12)*w_top*(h_top^3)  + A_top*(Z_top-Zbar)^2
+	Iyy_top  = (1/12)*w_top*(h_top^3)   + A_top*(Z_top-Zbar)^2
+	Iyy_web  = (1/12)*w_web*(h_web^3)   + A_web*(Z_web-Zbar)^2
+	Iyy_bot  = (1/12)*w_bot*(h_bot^3)   + A_bot*(Z_bot-Zbar)^2
 	Iyy_core = (1/12)*w_core*(h_core^3) + A_core*(Z_core-Zbar)^2
-	Iyy_bot  = (1/12)*w_bot*(h_bot^3) + A_bot*(Z_bot-Zbar)^2
-	EIyy = E_top*Iyy_top + E_core*Iyy_core + E_bot*Iyy_bot
 
-	#Deflection
+	EIyy = E_top*Iyy_top + 2*E_web*Iyy_web + E_bot*Iyy_bot + E_core*Iyy_core
+
+	#Compute defleciton. Ignoring shear deformation for now
+	My = P*L
+	Vz = P
+
 	δ = (P*L^3)/(48*EIyy)
 
-	#Saftey Factor
-	#Critical stresses -> Since doubly symmetric reduces to this.
-	My = -P*L/4
-	sxx_top = E_top*(Z_top-Zbar)*My/EIyy
-	sxx_bot = E_bot*(Z_bot-Zbar)*My/EIyy
-	sxx_core1 = E_core*((Z_top-h_top/2) - Zbar)*My/EIyy 
-	sxx_core2 = E_core*((Z_bot+h_bot/2) - Zbar)*My/EIyy
+	##Compute safety factors
+	##ASSUMPTIONS FOR NOW: 
+	##Webs carry all of shear stress, uniformly distributed
+	##Battery will not fail 
+	##Critical locations:
+	#1 - Top flange (bending stress)
+	#2 - Bot flagne (bending stress)
+	#3 - Highest point on web (bending + shear)
+	#4 - Lowest point on web (bending + shear)
+	#5 - Middle of web (peak shear, ignore for now since do not have expression)
+	τ_ave = Vz/(2*A_web)
+	sxx_top     = -E_top*(Z_top-Zbar)*My/EIyy
+	sxx_bot     = -E_top*(Z_bot-Zbar)*My/EIyy
+	sxx_web_top = -E_top*((Z_web+h_web/2)-Zbar)*My/EIyy
+	sxx_web_bot = -E_top*((Z_web-h_web/2)-Zbar)*My/EIyy
 
-	M = [0.,0.,0.]
-	N_top = [sxx_top*h_top,0.,0.]
-	N_bot = [sxx_bot*h_bot,0.,0.]
-	N_core1 = [sxx_core1*h_core,0.,0.]
-	N_core2 = [sxx_core2*h_core,0.,0.]
+	#Laminate level stress resultants
+	#N = [Nxx,Nyy,Nxy]
+	N_loc1 = [sxx_top*h_top,0.,0.]
+	N_loc2 = [sxx_bot*h_bot,0.,0.]
+	N_loc3 = [sxx_web_top*w_web,0.,τ_ave*w_web]
+	N_loc4 = [sxx_web_bot*w_web,0.,τ_ave*w_web]
 
-	SF_top   = safety_factor(composite_structure.top_sheet.laminate, N_top, M)
-	SF_bot   = safety_factor(composite_structure.bot_sheet.laminate, N_bot, M)
-	SF_core1 = safety_factor(composite_structure.core.laminate, N_core1, M)
-	SF_core2 = safety_factor(composite_structure.core.laminate, N_core2, M)
+	SF_1   = safety_factor(box_beam.top_flange.laminate, N_loc1, [0.,0.,0.])
+	SF_2   = safety_factor(box_beam.bot_flange.laminate, N_loc2, [0.,0.,0.])
+	SF_3   = safety_factor(box_beam.webs.laminate, 		N_loc3, [0.,0.,0.])
+	SF_4   = safety_factor(box_beam.webs.laminate, 		N_loc4, [0.,0.,0.])
 
-	SF = minimum([SF_top,SF_bot,SF_core1,SF_core2])
-	return ThreePointBending(composite_structure,P,δ,SF)
+	SF = minimum([SF_1,SF_2,SF_3,SF_4])
+	return CantileverBending(box_beam,P,δ,SF)
 end
