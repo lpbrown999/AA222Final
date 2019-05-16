@@ -1,10 +1,13 @@
 using AA222Final
-using PyPlot
+# using PyPlot
 
 # all units in lb - in
 
+## Todo: 
+# TUNE penalties, number of evaluations.
+
 #Main objective + constraint function
-function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, constraint_vec::Vector, allowable_ply_anlges::Vector, p1::Float64, p2::Float64, mode::String)
+function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)
 	
 	##################### DESCRIPTION / extract inputs #####################
 	#num_ply_vec is a vector of the number of plies in the top flange, web, and bottom flange
@@ -28,20 +31,24 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 
 	## constraint_vec is a vector of constraints
 		#Element1 : maximum height
-		#Element2 : maximum width
-		#Element3 : minimum height
+		#Element2 : minimum height
+		#Element3 : maximum width 
 		#Element4 : minimum width
 		#Element5 : minimum safety factor
-		#Element6 : maximum defleciton
-		#Element7 : minCapacity, the minimum level of the the negative capacity since we are doing pareto curve, maximizing capactiy
+		#Element6 : maximum safety factor -> over designed
+		#Element7 : maximum defleciton
+		#Element8 : minCapacity, the minimum level of the the negative capacity since we are doing pareto curve, maximizing capactiy
 	hmax = constraint_vec[1]
-	wmax = constraint_vec[2]
-	hmin = constraint_vec[3]
+	hmin = constraint_vec[2]
+	wmax = constraint_vec[3]
 	wmin = constraint_vec[4]
 	SFmin = constraint_vec[5]
-	δmax = constraint_vec[6]
-	Capacitymin = constraint_vec[7]
-	
+	SFmax = constraint_vec[6]
+	δmax = constraint_vec[7]
+	Capacitymin = constraint_vec[8]
+
+	#Symmetry is also imposed
+
 	## p1, p2 are penalty factors
 
 	## Mode is what we are doing really.
@@ -51,8 +58,8 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 
 	##################### Start main function #######################
 	######Fixed Stuff#########
-	l = 30.					#Fixed length of 30 inches, can change
-	P = 0.1				    #Fixed tip load
+	l = 9.3		#Fixed length of 30 inches, can change
+	P = 400.	#Fixed tip load
 
 	## Battery properties, assume isotropic, homogenized behavior. Does not include out of plane effects
 	E_bat = .78e6		#In plane
@@ -98,7 +105,7 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	##################### Value return #####################
 	# all constrants of form <= 0
 	# constraint_vec1 -> non layup constraints
-	# constraint_vec2 -> layup orientation constraints
+	# constraint_vec2 -> layup orientation constraints within allowable angles, and symmetry penalties
 	SF = bending_case.SF
 	δ = bending_case.δ
 	capacity = box_beam.capacity
@@ -106,38 +113,67 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	
 	cvec1 = [h-hmax, 						#h <= hmax 
 			 w-wmax, 						#w <= wmax 
-			 wb-w+2*box_beam.webs.h,		#wbattery <= w - 2*webthickness	#Battery must fit inside
+			 wb-w+2*box_beam.webs.h,		#wbattery <= w - 2*webthickness	#Battery must fit inside!
 
 			 hmin-h, 						#h >= hmin
 			 wmin-w,						#w >= wmin  
 
-			 SFmin-bending_case.SF, 		#SF >= SFmin 
+			 (SFmin-bending_case.SF), 		#SF >= SFmin 
+			 (bending_case.SF-SFmax),		#SF <= SFmax
 			 δ-δmax, 						#δ <= δmax
 			 Capacitymin-capacity]			#Capacity >= Capacitymmin
+	cvec1_weights = [1.,1.,1.,1.,1.,100.,100.,1.,1.]	#Constraint weighting vector
 
 
 	cvec2 = []
 	for layer in layups	
-		push!(cvec2,minimum(abs.(layer.-allowable_ply_anlges)))		# c evaluates to the minimum distance from an allowed angle
+		push!(cvec2,minimum(abs.(layer.-allowable_ply_angles)))		# c evaluates to the minimum distance from an allowed angle
 	end
+	cvec2 = [cvec2; symmetry_penalty(top_layup); symmetry_penalty(web_layup); symmetry_penalty(bot_layup)]
 
 	#Objective + penalties on the constraints
 	#no count penalty on the layup orientation since we will never be exact
-	
 	if mode == "optimize"
-		return weight + combined_penalty(cvec1,p1,p2) + combined_penalty(cvec2,p1,0)
+		return weight + combined_penalty(cvec1.*cvec1_weights,p1,p2) + combined_penalty(cvec2,p1/10,0)
 
 	elseif mode == "evaluate"
-		return [h,w,weight,capacity,SF,δ]
+		return [weight,capacity,SF,δ]
 	
+	elseif mode == "check_constraints"
+		return cvec1,cvec2
+
 	else
 		return Nothing
 	end
 end
 
-function optimize(f, ndim; neval=100, a=-1, b=1, p1=1., p1g=2., p2=1., p2g=2., num_growths=1)
-	## Inputs
-	#f -> function to optimize. Should include constraints already except for p1, p2. 
+function symmetry_penalty(layup::Vector)
+	#Returns a vector penalizing the difference between the ply angles
+	nplies = length(layup)
+	if nplies == 1
+		return 0.
+
+	elseif isodd(nplies)
+		idx = Int((nplies-1)/2)
+		front_half = layup[1:idx]
+		back_half = layup[idx+2:end]
+
+	elseif iseven(nplies)
+		idx = Int(nplies/2)
+		front_half = layup[1:idx]
+		back_half = layup[idx+1:end]
+
+	end
+	return abs.(front_half .- reverse(back_half))
+end
+
+function fix_num_ply_vec(num_ply_vec::Vector)
+	return floor.(Int,max.(num_ply_vec,1.0)) 
+end
+
+function optimize(f, ndim; neval=100, a=-1., b=1., p1=1., p1g=2., p2=1., p2g=2., num_growths=1)
+	# Inputs
+	#f -> function to optimize. Should include constraints already, and needs to be fed p1, p2.
 	#ndim -> problem dimension
 	#neval -> number of evals total
 	#a -> vector or float64 that is lower bound for simplex generation
@@ -160,33 +196,141 @@ function optimize(f, ndim; neval=100, a=-1, b=1, p1=1., p1g=2., p2=1., p2g=2., n
 		p1 *= p1g
 		p2 *= p2g
 	end
-
 	return xbest
 end
 
+#This function will return an optimal design value for the given number of plies and constraint penalties
+#This works by optimizing the geometry, layups for the given number of plies.
+function design_for_num_ply(num_ply_vec::Vector; constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64)
+	#Inputs: 
+	#num_ply_vec: Number of plies in the top flange, webs, bottom flange 
+	#constraint vec which is fed into the MESC box beam solver 
+	#allowable ply angles which is alos fed into the MESC box beam solver 
+	#p1, p2 are penalties fed into the box beam solver when evaluating design.
+	
+	#Begin
+	num_ply_vec = fix_num_ply_vec(num_ply_vec)  #Make this integers
+
+	#Set up inner optimization objective
+	a_inner = [constraint_vec[2]; constraint_vec[4]; constraint_vec[4]; -90. *ones(sum(num_ply_vec))]	#LB on h,w,wb, ply angles for simplex generation
+	b_inner = [constraint_vec[1]; constraint_vec[3]; constraint_vec[3]; 135. *ones(sum(num_ply_vec))]	#UB
+	ndim_inner = length(a_inner)
+
+	#Optimize the beam for the given number of plies
+	geometry_layup_objective(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, mode="optimize")
+	optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=1000, a=a_inner, b=b_inner, p1=1.0, p1g=1.3,  p2=10., p2g=1.3, num_growths=10)	
+	
+	design_value = geometry_layup_objective(optimal_design,p1,p2)
+	return design_value
+end
+
+# #Main function showing how base optimization works.
 # function main()
 
-#Constraints 
-hmax = 2.0
-wmax = 1.0
-hmin = 1.0
-wmin = 0.5
-SFmin = 1.1
-δmax = 1.0
-Capacitymin = 10.
-constraint_vec = [hmax,wmax,hmin,wmin,SFmin,δmax,Capacitymin]
-allowable_ply_angles = [-45.,0.,45.,90.]
+# 	#Set up constraints
+# 	hmax = 2.0
+# 	hmin = 1.0
+# 	wmax = 1.0
+# 	wmin = 0.5
+# 	SFmin = 1.1
+# 	δmax = 1.0
+# 	Capacitymin = 0.
+# 	constraint_vec = [hmax,hmin,wmax,wmin,SFmin,δmax,Capacitymin]
+# 	allowable_ply_angles = [-45.,0.,45.,90.]
 
-num_ply_vec =[4,3,2]       #Number of plys in top flange, webs, bot flange
-a = [zeros(3); -180. *ones(sum(num_ply_vec))]	#LB on h,w,wb, ply angles for simplex generation
-b = [5*ones(3); 180. *ones(sum(num_ply_vec))]	#UB
-ndim = length(a)
+# 	#Set up the outer optimization objective that will give us the best number of ply distribution
+# 	#Get the best ply distribution for the given constraints
+# 	ndim_outer = 3
+# 	a_outer = 1.
+# 	b_outer = 5.
+# 	num_ply_objective(num_ply_vec,p1,p2) = design_for_num_ply(num_ply_vec, p1=p1, p2=p2, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles)
+# 	num_ply_vec = fix_num_ply_vec( optimize(num_ply_objective, ndim_outer, neval=200, a=a_outer, b=b_outer, p1=2.0, p1g=1.3, p2=10., p2g=1.3, num_growths=20) )
 
-f_optimize(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_anlges=allowable_ply_angles, mode="optimize")
-f_evaluate(input_vector)       = mesc_box_beam_objective(input_vector, p1=0., p2=0., num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_anlges=allowable_ply_angles, mode="evaluate")
+# 	#Set up inner optimization objective, copied from the outer objective function
+# 	#Optimize the beam for the given number of plies
+# 	a_inner = [hmin; wmin; wmin; -90. *ones(sum(num_ply_vec))]	#LB on h,w,wb, ply angles for simplex generation
+# 	b_inner = [hmax; wmax; wmax; 135. *ones(sum(num_ply_vec))]	#UB
+# 	ndim_inner = length(a_inner)
+# 	geometry_layup_objective(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, mode="optimize")
+# 	optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=10000, a=a_inner, b=b_inner, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=100)	
+# end
 
-design = optimize(f_optimize, ndim, neval=100000, a=a, b=b, p1=1.0, p1g=1.3,  p2=10., p2g=1.3, num_growths=100)
-design_eval = f_evaluate(design)
+#Creates pareto frontier of weight and capacity by iteratively constraining capacity.
+function pareto_weight_capacity()
+
+	#Set up constraints
+	hmax = 2.0
+	hmin = 1.0
+	wmax = 1.0
+	wmin = 0.5
+	SFmin = 1.1
+	SFmax = 1.5
+	δmax = 1.0
+	allowable_ply_angles = [-45.,0.,45.,90.]
+
+	#Iterate over many different minimum capacities, finding the best design at each specified level.
+	Capacitymins = 0:20:1000
+
+	#Storage
+	best_num_ply_vecs = []	
+	best_designs = []
+	best_designs_evaluations = []
+	ys = []
+
+	#Within each loop, find the optimal design for this minimum capacity
+	for Capacitymin in Capacitymins
+		println(Capacitymin)
+		constraint_vec = [hmax,hmin,wmax,wmin,SFmin,SFmax,δmax,Capacitymin]
+
+		#Set up the outer optimization objective that will give us the best number of ply distribution
+		#Get the best ply distribution for the given constraints
+		ndim_outer = 3
+		a_outer = 1.
+		b_outer = 5.
+		num_ply_objective(num_ply_vec,p1,p2) = design_for_num_ply(num_ply_vec, p1=p1, p2=p2, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles)
+		num_ply_vec = fix_num_ply_vec( optimize(num_ply_objective, ndim_outer, neval=100, a=a_outer, b=b_outer, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=10) )
+
+		#Set up inner optimization objective, copied from the outer objective function
+		#Optimize the beam for the given number of plies
+		a_inner = [hmin; wmin; wmin; -90. *ones(sum(num_ply_vec))]	#LB on h,w,wb, ply angles for simplex generation
+		b_inner = [hmax; wmax; wmax; 135. *ones(sum(num_ply_vec))]	#UB
+		ndim_inner = length(a_inner)
+		geometry_layup_objective(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, mode="optimize")
+		optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=10000, a=a_inner, b=b_inner, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=100)	
+		
+
+		#Evalutate the design, store the weight and capacity of it in design_objectives
+		design_evaluation = mesc_box_beam_objective(optimal_design, p1=1.0, p2=1.0, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, mode="evaluate")
+		push!(best_num_ply_vecs, num_ply_vec)
+		push!(best_designs, optimal_design)
+
+		#Ys is weight, -capacity since capacity is maximized and this works for minimizing.
+		push!(ys, [design_evaluation[1], -design_evaluation[2]] )
+		push!(best_designs_evaluations, design_evaluation)				#For making sure designs are feasible
+	
+	end
+
+	#Get only non-dominated points
+	pareto_ys = []
+	pareto_ply_vec = []
+	pareto_design = []
+	pareto_design_evaluations = []
+
+	for (y,num_ply_vec,design, design_evaluation) in zip(ys,best_num_ply_vecs,best_designs, best_designs_evaluations)
+		if !any(all(y′ - y .≥ 0) && any(y′ - y .> 0) for y′ in ys) #Check domination
+			push!(pareto_ys,y)
+			push!(pareto_ply_vec,num_ply_vec)
+			push!(pareto_design,design)
+			push!(pareto_design_evaluations, design_evaluation)
+		end
+	end
+
+	return pareto_ys, pareto_ply_vec, pareto_design, pareto_design_evaluations
+
+end
+
+pareto_ys, pareto_ply_vec, pareto_design, pareto_design_evaluations = pareto_weight_capacity()
+
 
 
 
