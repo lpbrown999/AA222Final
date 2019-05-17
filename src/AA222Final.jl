@@ -11,7 +11,6 @@ export nelder_mead, generate_simplex, combined_penalty
 export CompositePlate, MESCBoxBeam, CantileverBending
 export composite_plate, MESC_box_beam, cantilever_bending
 
-
 include("CompositeAnalysis.jl")
 include("OptimizationMethods.jl")
 include("StructureAnalysis.jl")

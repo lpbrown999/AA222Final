@@ -8,5 +8,3 @@ To add to julia, clone the repo, then open your julia start up file  ~/.julia/co
 
 push!(LOAD_PATH, "/Users/me/AA222Final")
 
-# Progress update link 
-https://www.overleaf.com/project/5cdb4910e9d2b8439d6f37ff
