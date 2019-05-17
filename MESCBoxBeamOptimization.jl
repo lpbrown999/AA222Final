@@ -9,12 +9,13 @@ using CSV, DataFrames
 # Maximum feasible capacity to reach is ~ 91.326 (hmax*wmax*l*ρe = 2*1*9.3*4.91 = 91.326)
 # If we set higher than this no way it will be able to reach it
 
-P = 400 					#Tip load (integer)
-n_eval_outer = 100			#Number of evaluations used to determine number of plies, doesnt need as many
-n_eval_inner = 3000 		#Number of evaluations used to evaluate the design for number of plies, needs more
-num_growths = 10			#Number of growths
-Capacitymins = 0:1:90	    #capacities to iterate over
-csv_name = "result_$(P)_$(n_eval_outer)_$(n_eval_inner)_$(num_growths).csv"
+P = 400 							#Tip load (integer)
+n_eval_outer = 100					#Number of evaluations used to determine number of plies, doesnt need as many
+n_eval_inner = 2000 				#Number of evaluations used to evaluate the design for number of plies, needs more
+num_growths = 10					#Number of growths
+Capacitymins = repeat(0:1:90,3)	    #capacities to iterate over
+# Capacitymins = 
+csv_name = "results/result_$(P)_$(n_eval_outer)_$(n_eval_inner)_$(num_growths).csv"
 
 function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)
 	global P
@@ -239,7 +240,7 @@ function design_for_num_ply(num_ply_vec::Vector; constraint_vec::Vector, allowab
 end
 
 #Creates pareto frontier of weight and capacity by iteratively constraining capacity.
-function pareto_weight_capacity(Capcitymins, n_eval_outer::Int64, n_eval_inner::Int64, num_growths::Int64)
+function weight_capacity_tradeoff(Capcitymins, n_eval_outer::Int64, n_eval_inner::Int64, num_growths::Int64)
 	## Inputs
 	#Capacitymins -> vector of minimum capacities to run
 	#n_eval_outer -> number of evaluations used to determine number of plies
@@ -274,7 +275,7 @@ function pareto_weight_capacity(Capcitymins, n_eval_outer::Int64, n_eval_inner::
 		a_outer = 1.
 		b_outer = 5.
 		num_ply_objective(num_ply_vec,p1,p2) = design_for_num_ply(num_ply_vec, p1=p1, p2=p2, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, n_eval = n_eval_inner, num_growths=num_growths)
-		num_ply_vec = fix_num_ply_vec( optimize(num_ply_objective, ndim_outer, neval=n_eval_outer, a=a_outer, b=b_outer, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=num_growths) )
+		@time num_ply_vec = fix_num_ply_vec( optimize(num_ply_objective, ndim_outer, neval=n_eval_outer, a=a_outer, b=b_outer, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=num_growths) )
 
 		#Set up inner optimization objective, copied from the outer objective function
 		#Optimize the beam for the given number of plies
@@ -282,7 +283,7 @@ function pareto_weight_capacity(Capcitymins, n_eval_outer::Int64, n_eval_inner::
 		b_inner = [hmax; wmax; wmax; 135. *ones(sum(num_ply_vec))]	#UB
 		ndim_inner = length(a_inner)
 		geometry_layup_objective(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, mode="optimize")
-		optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=10000, a=a_inner, b=b_inner, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=100)	
+		@time optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=10000, a=a_inner, b=b_inner, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=100)	
 		
 
 		#Evalutate the design, store the weight and capacity of it in design_objectives
@@ -291,30 +292,26 @@ function pareto_weight_capacity(Capcitymins, n_eval_outer::Int64, n_eval_inner::
 		push!(best_designs, optimal_design)
 
 		#Ys is weight, -capacity since capacity is maximized and this works for minimizing.
-		push!(ys, [design_evaluation[1], -design_evaluation[2]] )
 		push!(best_designs_evaluations, design_evaluation)				#For making sure designs are feasible
 	end
 
-	#Get only non-dominated points
-	pareto_ys = []
-	pareto_ply_vec = []
-	pareto_design = []
-	pareto_design_evaluations = []
+	# #Get only non-dominated points
+	# pareto_ys = []
+	# pareto_ply_vec = []
+	# pareto_design = []
+	# pareto_design_evaluations = []
 
-	for (y, num_ply_vec, design, design_evaluation) in zip(ys,best_num_ply_vecs,best_designs, best_designs_evaluations)
-		if !any(all(y′ - y .≥ 0) && any(y′ - y .> 0) for y′ in ys) #If it is not dominated by any point, add it to list
-			push!(pareto_ys,y)
-			push!(pareto_ply_vec,num_ply_vec)
-			push!(pareto_design,design)
-			push!(pareto_design_evaluations, design_evaluation)
-		end
-	end
+	# for (y, num_ply_vec, design, design_evaluation) in zip(ys,best_num_ply_vecs,best_designs, best_designs_evaluations)
+	# 	if !any(all(y′ - y .≥ 0) && any(y′ - y .> 0) for y′ in ys) #If it is not dominated by any point, add it to list
+	# 		push!(pareto_ys,y)
+	# 		push!(pareto_ply_vec,num_ply_vec)
+	# 		push!(pareto_design,design)
+	# 		push!(pareto_design_evaluations, design_evaluation)
+	# 	end
+	# end
 
-	return pareto_ys, pareto_ply_vec, pareto_design, pareto_design_evaluations
+	return best_num_ply_vecs, best_designs, best_designs_evaluations
 end
 
-pareto_ys, pareto_ply_vec, pareto_design, pareto_design_evaluations = pareto_weight_capacity(Capacitymins, n_eval_outer, n_eval_inner, num_growths)
-CSV.write(csv_name,  DataFrame(pareto_design_evaluations), writeheader=false)
-
-
-
+best_num_ply_vecs, best_designs, best_designs_evaluations = weight_capacity_tradeoff(Capacitymins, n_eval_outer, n_eval_inner, num_growths)
+CSV.write(csv_name,  DataFrame(best_designs_evaluations), writeheader=false)
