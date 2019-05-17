@@ -1,14 +1,21 @@
 using AA222Final
+using CSV, DataFrames
 # using PyPlot
 
 # all units in lb - in
 
 ## Todo: 
 # TUNE penalties, number of evaluations.
+		
+P = 400 				#Tip load (integer)
+n_eval_outer = 100		#Number of evaluations used to determine number of plies, doesnt need as many
+n_eval_inner = 1000 	#Number of evaluations used to evaluate the design for number of plies, needs more
+num_growths = 10		#Number of growths
+csv_name = "result_$(P)_$(n_eval_outer)_$(n_eval_inner)_$(num_growths).csv"
 
-#Main objective + constraint function
 function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)
-	
+	global P
+
 	##################### DESCRIPTION / extract inputs #####################
 	#num_ply_vec is a vector of the number of plies in the top flange, web, and bottom flange
 	n_top_flange = num_ply_vec[1]
@@ -59,7 +66,6 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	##################### Start main function #######################
 	######Fixed Stuff#########
 	l = 9.3		#Fixed length of 30 inches, can change
-	P = 400.	#Fixed tip load
 
 	## Battery properties, assume isotropic, homogenized behavior. Does not include out of plane effects
 	E_bat = .78e6		#In plane
@@ -100,7 +106,7 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 
 	#generate MESC box beam and can evaluate its performance in the loading case
 	box_beam = MESC_box_beam(top_plate,web_plate,bot_plate,battery_properties,h,w,l,wb)
-	bending_case = cantilever_bending(box_beam,P)
+	bending_case = cantilever_bending(box_beam,Float(P))
 
 	##################### Value return #####################
 	# all constrants of form <= 0
@@ -202,6 +208,8 @@ end
 #This function will return an optimal design value for the given number of plies and constraint penalties
 #This works by optimizing the geometry, layups for the given number of plies.
 function design_for_num_ply(num_ply_vec::Vector; constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64)
+	global n_eval_inner, num_growths
+	
 	#Inputs: 
 	#num_ply_vec: Number of plies in the top flange, webs, bottom flange 
 	#constraint vec which is fed into the MESC box beam solver 
@@ -218,46 +226,15 @@ function design_for_num_ply(num_ply_vec::Vector; constraint_vec::Vector, allowab
 
 	#Optimize the beam for the given number of plies
 	geometry_layup_objective(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, mode="optimize")
-	optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=1000, a=a_inner, b=b_inner, p1=1.0, p1g=1.3,  p2=10., p2g=1.3, num_growths=10)	
+	optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=n_eval_inner, a=a_inner, b=b_inner, p1=1.0, p1g=1.3,  p2=10., p2g=1.3, num_growths=num_growths)	
 	
 	design_value = geometry_layup_objective(optimal_design,p1,p2)
 	return design_value
 end
 
-# #Main function showing how base optimization works.
-# function main()
-
-# 	#Set up constraints
-# 	hmax = 2.0
-# 	hmin = 1.0
-# 	wmax = 1.0
-# 	wmin = 0.5
-# 	SFmin = 1.1
-# 	δmax = 1.0
-# 	Capacitymin = 0.
-# 	constraint_vec = [hmax,hmin,wmax,wmin,SFmin,δmax,Capacitymin]
-# 	allowable_ply_angles = [-45.,0.,45.,90.]
-
-# 	#Set up the outer optimization objective that will give us the best number of ply distribution
-# 	#Get the best ply distribution for the given constraints
-# 	ndim_outer = 3
-# 	a_outer = 1.
-# 	b_outer = 5.
-# 	num_ply_objective(num_ply_vec,p1,p2) = design_for_num_ply(num_ply_vec, p1=p1, p2=p2, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles)
-# 	num_ply_vec = fix_num_ply_vec( optimize(num_ply_objective, ndim_outer, neval=200, a=a_outer, b=b_outer, p1=2.0, p1g=1.3, p2=10., p2g=1.3, num_growths=20) )
-
-# 	#Set up inner optimization objective, copied from the outer objective function
-# 	#Optimize the beam for the given number of plies
-# 	a_inner = [hmin; wmin; wmin; -90. *ones(sum(num_ply_vec))]	#LB on h,w,wb, ply angles for simplex generation
-# 	b_inner = [hmax; wmax; wmax; 135. *ones(sum(num_ply_vec))]	#UB
-# 	ndim_inner = length(a_inner)
-# 	geometry_layup_objective(input_vector,p1,p2) = mesc_box_beam_objective(input_vector, p1=p1, p2=p2, num_ply_vec=num_ply_vec, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles, mode="optimize")
-# 	optimal_design = optimize(geometry_layup_objective, ndim_inner, neval=10000, a=a_inner, b=b_inner, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=100)	
-# end
-
 #Creates pareto frontier of weight and capacity by iteratively constraining capacity.
 function pareto_weight_capacity()
-
+	global n_eval_outer, num_growths
 	#Set up constraints
 	hmax = 2.0
 	hmin = 1.0
@@ -269,7 +246,7 @@ function pareto_weight_capacity()
 	allowable_ply_angles = [-45.,0.,45.,90.]
 
 	#Iterate over many different minimum capacities, finding the best design at each specified level.
-	Capacitymins = 0:20:1000
+	Capacitymins = 0
 
 	#Storage
 	best_num_ply_vecs = []	
@@ -288,7 +265,7 @@ function pareto_weight_capacity()
 		a_outer = 1.
 		b_outer = 5.
 		num_ply_objective(num_ply_vec,p1,p2) = design_for_num_ply(num_ply_vec, p1=p1, p2=p2, constraint_vec=constraint_vec, allowable_ply_angles=allowable_ply_angles)
-		num_ply_vec = fix_num_ply_vec( optimize(num_ply_objective, ndim_outer, neval=100, a=a_outer, b=b_outer, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=10) )
+		num_ply_vec = fix_num_ply_vec( optimize(num_ply_objective, ndim_outer, neval=n_eval_outer, a=a_outer, b=b_outer, p1=1.0, p1g=1.3, p2=10., p2g=1.3, num_growths=num_growths) )
 
 		#Set up inner optimization objective, copied from the outer objective function
 		#Optimize the beam for the given number of plies
@@ -330,8 +307,7 @@ function pareto_weight_capacity()
 end
 
 pareto_ys, pareto_ply_vec, pareto_design, pareto_design_evaluations = pareto_weight_capacity()
-
-
+CSV.write(csv_name,  DataFrame(pareto_design_evaluations), writeheader=false)
 
 
 
