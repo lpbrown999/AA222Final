@@ -4,15 +4,16 @@ using CSV, DataFrames
 
 # all units in lb - in
 
-## Todo: 
-# TUNE penalties, number of evaluations.
-		
-P = 400 				#Tip load (integer)
-n_eval_outer = 100		#Number of evaluations used to determine number of plies, doesnt need as many
-n_eval_inner = 1000 	#Number of evaluations used to evaluate the design for number of plies, needs more
-num_growths = 10		#Number of growths
-Capacitymins = 0:10:20	#capacities to iterate over
+## Notes
+# 100,000 = n_eval_outer*n_eval_nner takes about 20 seconds for 1 capacity.
+# Maximum feasible capacity to reach is ~ 91.326 (hmax*wmax*l*ρe = 2*1*9.3*4.91 = 91.326)
+# If we set higher than this no way it will be able to reach it
 
+P = 400 					#Tip load (integer)
+n_eval_outer = 100			#Number of evaluations used to determine number of plies, doesnt need as many
+n_eval_inner = 3000 		#Number of evaluations used to evaluate the design for number of plies, needs more
+num_growths = 10			#Number of growths
+Capacitymins = 0:1:90	    #capacities to iterate over
 csv_name = "result_$(P)_$(n_eval_outer)_$(n_eval_inner)_$(num_growths).csv"
 
 function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)
@@ -27,11 +28,11 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	## input_vector is a vector of beam geometry and layups, which is what we are optimizing over
 		#Element 1: beam total height (enforce feasibility)
 		#Element 2: beam total width  (enforce feasibility)
-		#Element 3: battery width (enforce feasibility)
+		#Element 3: battery width     (enforce feasibility)
 		#Elements 4 to end: layups 
-	h = max(input_vector[1],.1)
-	w = max(input_vector[2],.1)
-	wb = max(input_vector[3],.1)
+	h = max(input_vector[1],.05)
+	w = max(input_vector[2],.05)
+	wb = max(input_vector[3],.05)
 
 	layups = input_vector[4:end]
 	top_layup = layups[1:n_top_flange]
@@ -106,7 +107,10 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	web_laminate = laminate_analyzer(web_layup,composite_properties,composite_strengths)
 	web_plate = composite_plate(web_laminate, h-top_plate.h-bot_plate.h, l)
 
-	#generate MESC box beam and can evaluate its performance in the loading case
+
+	#generate MESC box beam and can evaluate its performance in the loading case	
+	#Enforce physical meaning of battery width. Cannot be be larger than the beam.	
+	wb = min(wb, w-2*web_plate.h)
 	box_beam = MESC_box_beam(top_plate,web_plate,bot_plate,battery_properties,h,w,l,wb)
 	bending_case = cantilever_bending(box_beam,float(P))
 
@@ -149,7 +153,8 @@ function mesc_box_beam_objective(input_vector::Vector; num_ply_vec::Vector, cons
 	
 	elseif mode == "check_constraints"
 		return cvec1,cvec2
-
+	elseif mode == "debug"
+		return bending_case
 	else
 		return Nothing
 	end
@@ -296,7 +301,7 @@ function pareto_weight_capacity(Capcitymins, n_eval_outer::Int64, n_eval_inner::
 	pareto_design = []
 	pareto_design_evaluations = []
 
-	for (y,num_ply_vec,design, design_evaluation) in zip(ys,best_num_ply_vecs,best_designs, best_designs_evaluations)
+	for (y, num_ply_vec, design, design_evaluation) in zip(ys,best_num_ply_vecs,best_designs, best_designs_evaluations)
 		if !any(all(y′ - y .≥ 0) && any(y′ - y .> 0) for y′ in ys) #If it is not dominated by any point, add it to list
 			push!(pareto_ys,y)
 			push!(pareto_ply_vec,num_ply_vec)
