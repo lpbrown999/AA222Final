@@ -31,7 +31,7 @@ function battery_core(battery::BatteryProperties,h::Float64,w::Float64,l::Float6
 	G = battery.G
 	ρ = battery.ρ
 	ρe = battery.ρe
-	V = w*h*l
+	V = h*w*l
 	weight = ρ*V 
 	capacity = ρe*V
 	return BatteryCore(E,G,h,w,l,ρ,ρe,weight,capacity)
