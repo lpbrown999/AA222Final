@@ -11,10 +11,9 @@ using CSV, DataFrames
 # so we only do 1 layer of optimization
 
 P = 400							#Tip load (integer)
-neval = 100							#Number of evaluations used to determine number of plies, doesnt need as many
+neval = 10000					#Number of evaluations used to determine number of plies, doesnt need as many
 num_growths = 10					#Number of growths
-Capacitymins = repeat(0:1:90,30)	    #capacities to iterate over
-Capacitymins = 0:1:90
+Capacitymins = repeat(0:1:90,50)	    #capacities to iterate over
 csv_name = "results/test_result_$(P)_$(neval)_$(num_growths).csv"
 
 function mesc_box_beam_objective(input_vector::Vector; num_dummy_plies::Int64, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)

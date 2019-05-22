@@ -3,18 +3,13 @@ using PyPlot
 
 
 
-#Load the file data
-# filename = "results/test_result_400_100_10.csv"
-# DF = CSV.read(filename)
-# weights = Array(DF.Weight)
-# capacities = Array(DF.Capacity)
-# SF = Array(DF.SafetyFactor)
-# δ = Array(DF.Deflection)
-
-filename  = "result_old_method.csv"
-DF = CSV.read(filename,header=false,transpose=true)
-weights = Array(DF.Column1)
-capacities = Array(DF.Column2)
+# Load the file data
+filename = "results/test_result_400_10000_10.csv"
+DF = CSV.read(filename)
+weights = Array(DF.Weight)
+capacities = Array(DF.Capacity)
+SF = Array(DF.SafetyFactor)
+δ = Array(DF.Deflection)
 
 #Grab the objectives we are trading off
 y1s = weights 
@@ -43,12 +38,13 @@ ax = gca()
 ax.grid()
 
 for y in pareto_ys
-	ax.plot(y[1],y[2],"k*")
+	ax.plot(y[1],y[2],"k.")
 end
 for y in dominated_ys
-	ax.plot(y[1],y[2],"r*")
+	ax.plot(y[1],y[2],"r.")
 end
-# ax.set(xlabel="Total Weight", ylabel="-Electrical Capacity", xticklabels=[], yticklabels=[])
-savefig("old.png",dpi=300)
+
+ax.set(xlabel="Total Weight", ylabel="-Electrical Capacity", xticklabels=[], yticklabels=[])
+savefig(string(splitext(filename)[1],".png"),dpi=300)
 
 
