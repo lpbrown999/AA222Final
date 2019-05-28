@@ -4,7 +4,9 @@ using Colors
 
 function main()
 
-	Ps = 0:100:500
+	Ps = [0,50,300]
+
+
 	fig = figure("")
 	ax = gca()
 	ax.grid()
@@ -21,30 +23,29 @@ function main()
 
 		weights = Array(DF.Weight)
 		capacities = Array(DF.Capacity)
-		SF = Array(DF.SafetyFactor)
-		δ = Array(DF.Deflection)
-		height = Array(DF.Height)
-		width = Array(DF.Width)
-		battery_width = Array(DF.BatteryWidth)
-
-		#Grab the objectives we are trading off
-		y1s = weights 
-		y2s = -capacities
-		ys = []
+		SFs = Array(DF.SafetyFactor)
+		δs = Array(DF.Deflection)
+		heights = Array(DF.Height)
+		widths = Array(DF.Width)
+		battery_widths = Array(DF.BatteryWidth)
+		replace!(SFs, NaN=>Inf)
 
 		#Sepearate into pareto optimal, non pareto optimal design points 
-		for (y1,y2) in zip(y1s,y2s)
-			push!(ys,[y1,y2])
+		ys = []
+		for (weight,capacity,SF,δ,height,width,battery_width) in zip(weights,capacities,SFs,δs,heights,widths,battery_widths)
+			#Here is where we can check to remove the non-feasible points if we want
+			if is_feasible(weight,capacity,SF,δ,height,width,battery_width)
+				push!(ys,[weight,-capacity])
+			end
 		end
 
+		println(P," ",length(ys))
 		pareto_ys = []
-		infeasible_pareto_ys = []
 		dominated_ys = []
-		infeasible_dominated_ys = []
 
-		dominates(y, y′) = all(y .<= y′) && any(y .< y′)	#returns true if y dominates y'
 		for y in ys
-			if !any(dominates(y′,y) for y′ in ys) 	#If no other point dominates it, it is pareto optimal
+			#If no other point dominates it, it is pareto optimal
+			if !any(dominates(y′,y) for y′ in ys)
 				push!(pareto_ys,y)
 			else
 				push!(dominated_ys,y)
@@ -64,7 +65,14 @@ function main()
 	savefig("test.png",dpi=300)
 end
 
-function is_feasible(SF,δ,height,width,battery_width)
+function dominates(y, y′) #returns true if y dominates y'
+	return all(y .<= y′) && any(y .< y′)	
+end
+
+function is_feasible(weight,capacity,SF,δ,height,width,battery_width)
+	#Returns true if all constraints satisfied
+
+	#Constraint values
 	hmax = 2.0
 	hmin = 1.0
 	wmax = 1.0
@@ -73,8 +81,20 @@ function is_feasible(SF,δ,height,width,battery_width)
 	SFmax = Inf
 	δmax = .005
 
+	#Constraint vector -> Allow slight deviation from constraints
+	constraint_vec = [height<=hmax*1.01,
+				      height>=hmin*.99,
+				      width<=wmax*1.01,
+				      width>=wmin*.99,
+				      battery_width<=width,
+				      SF>=1.0,
+				      SF<=SFmax
+				      δ<=δmax*1.01]
+
+	return all(constraint_vec)
 end
 
+main()
 
 
 

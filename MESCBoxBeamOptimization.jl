@@ -6,9 +6,6 @@ using CSV, DataFrames
 
 ## Notes
 # New method
-# We pass in more ply angles than necessary in the layups 
-# And then construct the layups based on how many plies are specified from these oversized vectors
-# so we only do 1 layer of optimization
 
 function mesc_box_beam_objective(input_vector::Vector; P, num_dummy_plies::Int64, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)
 	#Input_vector: now merged with num_ply_vec
@@ -218,11 +215,11 @@ function weight_capacity_tradeoff(P,Capacitymins,neval,num_growths)
 	return ys
 end
 
-Ps = 0:50:500
+Ps = [100,200,300]
 for P in Ps
-	neval = 20000
+	neval = 20001
 	num_growths = 20
-	Capacitymins = repeat(0:2:90,20)	   								#capacities to iterate over
+	Capacitymins = repeat(0:2:90,60)	   								#capacities to iterate over
 	ys = weight_capacity_tradeoff(P, Capacitymins, neval, num_growths)
 	csv_name = "results/test_result_$(P)_$(neval)_$(num_growths).csv"
 	CSV.write(csv_name,  DataFrame(hcat(ys...)'), header=["Weight","Capacity","SafetyFactor","Deflection","Height","Width","BatteryWidth"], transpose=true)
