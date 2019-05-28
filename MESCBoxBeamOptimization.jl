@@ -10,15 +10,7 @@ using CSV, DataFrames
 # And then construct the layups based on how many plies are specified from these oversized vectors
 # so we only do 1 layer of optimization
 
-P = 400							#Tip load (integer)
-neval = 10000					#Number of evaluations used to determine number of plies, doesnt need as many
-num_growths = 10					#Number of growths
-Capacitymins = repeat(0:1:90,50)	    #capacities to iterate over
-csv_name = "results/test_result_$(P)_$(neval)_$(num_growths).csv"
-
-function mesc_box_beam_objective(input_vector::Vector; num_dummy_plies::Int64, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)
-	global P
-	# println(input_vector[1:3])
+function mesc_box_beam_objective(input_vector::Vector; P, num_dummy_plies::Int64, constraint_vec::Vector, allowable_ply_angles::Vector, p1::Float64, p2::Float64, mode::String)
 	#Input_vector: now merged with num_ply_vec
 	n_top_flange = Int( floor(max(min(input_vector[1],num_dummy_plies*2), 1.0)) ) 
 	n_webs       = Int( floor(max(min(input_vector[2],num_dummy_plies*2), 1.0)) )
@@ -138,7 +130,7 @@ function mesc_box_beam_objective(input_vector::Vector; num_dummy_plies::Int64, c
 	if mode == "optimize"
 		return weight + combined_penalty(cvec1.*cvec1_weights,p1,p2) + combined_penalty(cvec2,p1/10,0)
 	elseif mode == "evaluate"
-		return [weight,capacity,SF,δ]
+		return [weight,capacity,SF,δ,h,w,wb]		#For plotting and to check if ok!
 	elseif mode == "check_constraints"
 		return cvec1,cvec2
 	elseif mode == "debug"
@@ -190,7 +182,7 @@ function optimize(f, ndim; neval=100, a=-1., b=1., p1=1., p1g=2., p2=1., p2g=2.,
 	return xbest
 end
 
-function weight_capacity_tradeoff(Capacitymins,neval,num_growths)
+function weight_capacity_tradeoff(P,Capacitymins,neval,num_growths)
 	
 	#Set up constraints
 	hmax = 2.0
@@ -199,11 +191,11 @@ function weight_capacity_tradeoff(Capacitymins,neval,num_growths)
 	wmin = 0.5
 	SFmin = 1.1
 	SFmax = Inf
-	δmax = 1.0
+	δmax = .005
 	allowable_ply_angles = [-45.,0.,45.,90.]
 
 	#Set up simplex generation
-	num_dummy_plies = 4	
+	num_dummy_plies = 10
 	ndim = 6 + num_dummy_plies*3
 	a = [zeros(3);                  hmin; wmin; wmin; -90. *ones(num_dummy_plies*3)] #LB on h,w,wb, ply angles for simplex generation
 	b = [2*num_dummy_plies*ones(3); hmax; wmax; wmax; 135. *ones(num_dummy_plies*3)] #UB
@@ -212,10 +204,11 @@ function weight_capacity_tradeoff(Capacitymins,neval,num_growths)
 	ys = []
 	
 	for Capacitymin in Capacitymins
+		println("P: $P, Capacitymins: $Capacitymin")
 		constraint_vec = [hmax,hmin,wmax,wmin,SFmin,SFmax,δmax,Capacitymin]
 		
-		function_to_optimize(input_vector,p1,p2) = mesc_box_beam_objective(input_vector,p1=p1,p2=p2,num_dummy_plies=num_dummy_plies,constraint_vec=constraint_vec,allowable_ply_angles=allowable_ply_angles, mode="optimize")
-		function_evaluation(input_vector,p1,p2)  = mesc_box_beam_objective(input_vector,p1=p1,p2=p2,num_dummy_plies=num_dummy_plies,constraint_vec=constraint_vec,allowable_ply_angles=allowable_ply_angles, mode="evaluate")
+		function_to_optimize(input_vector,p1,p2) = mesc_box_beam_objective(input_vector,P=P,p1=p1,p2=p2,num_dummy_plies=num_dummy_plies,constraint_vec=constraint_vec,allowable_ply_angles=allowable_ply_angles, mode="optimize")
+		function_evaluation(input_vector,p1,p2)  = mesc_box_beam_objective(input_vector,P=P,p1=p1,p2=p2,num_dummy_plies=num_dummy_plies,constraint_vec=constraint_vec,allowable_ply_angles=allowable_ply_angles, mode="evaluate")
 		
 		@time x = optimize(function_to_optimize, ndim; neval=neval, a=a, b=b, p1=2.0, p1g=1.5, p2=2.0, p2g=1.5, num_growths=num_growths)
 		y = function_evaluation(x,0.,0.)
@@ -225,5 +218,12 @@ function weight_capacity_tradeoff(Capacitymins,neval,num_growths)
 	return ys
 end
 
-ys = weight_capacity_tradeoff(Capacitymins, neval, num_growths)
-CSV.write(csv_name,  DataFrame(hcat(ys...)'), header=["Weight","Capacity","SafetyFactor","Deflection"], transpose=true)
+Ps = 0:50:500
+for P in Ps
+	neval = 20000
+	num_growths = 20
+	Capacitymins = repeat(0:2:90,20)	   								#capacities to iterate over
+	ys = weight_capacity_tradeoff(P, Capacitymins, neval, num_growths)
+	csv_name = "results/test_result_$(P)_$(neval)_$(num_growths).csv"
+	CSV.write(csv_name,  DataFrame(hcat(ys...)'), header=["Weight","Capacity","SafetyFactor","Deflection","Height","Width","BatteryWidth"], transpose=true)
+end
