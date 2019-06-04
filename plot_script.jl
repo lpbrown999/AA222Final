@@ -3,22 +3,28 @@ using PyPlot
 using Colors
 
 function main()
+	fontname="Computer Modern"
+	rc("text", usetex=true)
+	Ps = [100,200,300]
+	main_plot_labels = [L"\mathrm{Lowest \ Load}",L"\mathrm{Medium \ Load}",L"\mathrm{Highest \ Load}",""]
+	figures = []
+	axs = []
 
-	Ps = [0,50,300]
-
-
-	fig = figure("")
-	ax = gca()
-	ax.grid()
+	for i in 1:length(Ps)+1
+		push!(figures,figure(i,figsize=(16/2,9/2)))
+		push!(axs,gca())
+		axs[i].set(xlabel=L"\mathrm{Total \ Weight}", ylabel=L"\mathrm{-Electrical \ Capacity}", title=main_plot_labels[i], xticklabels=[], yticklabels=[])
+	end
+	axs[end].set(title=L"\mathrm{All \ Pareto \ Frontiers}")
 
 	#Generate maximally distinguishable colors for this plot
 	cols = distinguishable_colors(length(Ps)+1, [RGB(1,1,1)])[2:end]
 	pcols = map(col -> (red(col), green(col), blue(col)), cols)
 
-	for (P,pcol) in zip(Ps,pcols)
+	for (P,pcol,i) in zip(Ps,pcols,1:length(Ps))
 
 		# Load the file data
-		filename = "results/test_result_$(P)_20000_20.csv"
+		filename = "results_joined_final/result_$(P).csv"
 		DF = CSV.read(filename)
 
 		weights = Array(DF.Weight)
@@ -29,19 +35,16 @@ function main()
 		widths = Array(DF.Width)
 		battery_widths = Array(DF.BatteryWidth)
 		replace!(SFs, NaN=>Inf)
-
+		println(P," ", length(weights))
 		#Sepearate into pareto optimal, non pareto optimal design points 
 		ys = []
+		pareto_ys = []
+		dominated_ys = []
 		for (weight,capacity,SF,δ,height,width,battery_width) in zip(weights,capacities,SFs,δs,heights,widths,battery_widths)
-			#Here is where we can check to remove the non-feasible points if we want
 			if is_feasible(weight,capacity,SF,δ,height,width,battery_width)
 				push!(ys,[weight,-capacity])
 			end
 		end
-
-		println(P," ",length(ys))
-		pareto_ys = []
-		dominated_ys = []
 
 		for y in ys
 			#If no other point dominates it, it is pareto optimal
@@ -52,20 +55,35 @@ function main()
 			end
 		end
 
-		for y in pareto_ys
-			ax.plot(y[1],y[2],c=pcol,marker=".")
+		#Plot on main plot and individual plots. Plot one more to get legend.
+		println(P," ",length(ys))
+		println(P," ",length(pareto_ys))
+		for y in dominated_ys
+			axs[i].plot(y[1],y[2],c="gray",marker=".",alpha=0.5)
 		end
-		# for y in dominated_ys
-		# 	ax.plot(y[1],y[2],c="gray",marker=".")
-		# end
+		axs[i].plot(dominated_ys[end][1],dominated_ys[end][2],c="gray",marker=".",alpha=0.5, label=L"\mathrm{Dominated \ Points}")
 
-		# ax.set(xlabel="Total Weight", ylabel="-Electrical Capacity", xticklabels=[], yticklabels=[])
-		# savefig(string(splitext(filename)[1],".png"),dpi=300)
+		for y in pareto_ys
+			axs[end].plot(y[1],y[2],c=pcol,marker=".")
+			axs[i].plot(y[1],y[2],c=pcol,marker=".")
+		end
+		axs[end].plot(pareto_ys[end][1],pareto_ys[end][2],c=pcol,marker=".", label=main_plot_labels[i])
+		axs[i].plot(pareto_ys[end][1],pareto_ys[end][2],c=pcol,marker=".", label=L"\mathrm{Pareto \ Frontier}")
+
 	end
-	savefig("test.png",dpi=300)
+
+	for i in 1:length(Ps)+1
+		figure(i)
+		ax = gca()
+		legend()
+		# ax.set_aspect(0.0021)
+		savefig("figure_$i.png",dpi=500)
+	end
+
+	return true
 end
 
-function dominates(y, y′) #returns true if y dominates y'
+function dominates(y, y′) #returns true if y dominates y"
 	return all(y .<= y′) && any(y .< y′)	
 end
 
@@ -88,8 +106,8 @@ function is_feasible(weight,capacity,SF,δ,height,width,battery_width)
 				      width>=wmin*.99,
 				      battery_width<=width,
 				      SF>=1.0,
-				      SF<=SFmax
-				      δ<=δmax*1.01]
+				      SF<=SFmax,
+				      δ<=δmax*1.2]
 
 	return all(constraint_vec)
 end

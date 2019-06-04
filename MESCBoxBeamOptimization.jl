@@ -219,8 +219,8 @@ Ps = [100,200,300]
 for P in Ps
 	neval = 20001
 	num_growths = 20
-	Capacitymins = repeat(0:2:90,60)	   								#capacities to iterate over
+	Capacitymins = repeat(0:2:90,100)	   								#capacities to iterate over
 	ys = weight_capacity_tradeoff(P, Capacitymins, neval, num_growths)
-	csv_name = "results/test_result_$(P)_$(neval)_$(num_growths).csv"
+	csv_name = "results_may28/test_result_$(P)_$(neval)_$(num_growths).csv"
 	CSV.write(csv_name,  DataFrame(hcat(ys...)'), header=["Weight","Capacity","SafetyFactor","Deflection","Height","Width","BatteryWidth"], transpose=true)
 end
